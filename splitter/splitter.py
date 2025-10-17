@@ -45,7 +45,7 @@ def send_tasks(tasks, host, port):
 
 def main():
     # Example: generate random 4x4 matrices (replace with file input if needed)
-    n = 4
+    n = 10
     A = np.random.randint(0, 10, (n, n))
     B = np.random.randint(0, 10, (n, n))
     print("Matrix A:\n", A)
