@@ -1,11 +1,8 @@
-version: "3.9"
-
 services:
   aggregator:
     build:
       context: ./aggregator
-      dockerfile: Dockerfile   # change this if your aggregator uses a different Dockerfile name
-    container_name: aggregator_service
+      dockerfile: Dockerfile
     ports:
       - "8002:8002"
     networks:
@@ -14,29 +11,25 @@ services:
   worker:
     build:
       context: ./worker
-      dockerfile: Dockerfile       # change this if your worker uses a different Dockerfile name
-    container_name: worker_service
+      dockerfile: Dockerfile
     ports:
       - "8001:8001"
     depends_on:
       - aggregator
     networks:
       - matrix_net
-    deploy:
-      replicas: 4
 
   splitter:
     build:
       context: ./splitter
-      dockerfile: Dockerfile      # change this if your splitter uses a different Dockerfile name
-    container_name: splitter_service
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     depends_on:
       - worker
     networks:
       - matrix_net
-      
+
 networks:
   matrix_net:
     driver: bridge
