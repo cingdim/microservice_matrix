@@ -23,6 +23,18 @@ services:
     networks:
       - matrix_net
 
+  splitter:
+    build:
+      context: ./splitter
+      dockerfile: Dockerfile      # change this if your splitter uses a different Dockerfile name
+    container_name: splitter_service
+    ports:
+      - "8000:8000"
+    depends_on:
+      - worker
+    networks:
+      - matrix_net
+      
 networks:
   matrix_net:
     driver: bridge

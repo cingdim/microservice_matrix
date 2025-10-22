@@ -12,8 +12,8 @@ class SplitRequest(BaseModel):
     A: list
     B: list
     block_size: int = 0
-    worker_url: str = "http://worker:8000"
-    aggregator_url: str = "http://aggregator:8000"
+    worker_url: str = "http://worker:8001"
+    aggregator_url: str = "http://aggregator:8002"
 
 @app.post("/split")
 def split_and_dispatch(req: SplitRequest):
