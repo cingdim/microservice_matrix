@@ -1,63 +1,97 @@
-import socket
-import pickle
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import numpy as np
+import requests
 import uuid
+import math
 
-# Configuration
-HOST = '0.0.0.0'  # Bind to all interfaces in Docker
-PORT = 5557       # Port to send tasks to Multiplication Service
-THRESHOLD = 2     # Minimum sub-matrix size (for testing)
+app = FastAPI(title="Splitter Microservice")
 
-# Function to validate matrices
-def validate_matrices(A, B):
-    if A.shape != B.shape:
-        raise ValueError("Matrices must have the same dimensions")
-    if A.shape[0] != A.shape[1]:
-        raise ValueError("Only square matrices are supported")
-    if not (np.issubdtype(A.dtype, np.number) and np.issubdtype(B.dtype, np.number)):
-        raise ValueError("Matrices must be numeric")
+# incoming request model
+class SplitRequest(BaseModel):
+    A: list
+    B: list
+    block_size: int = 0
+    worker_url: str = "http://worker:8000"
+    aggregator_url: str = "http://aggregator:8000"
 
-# Recursive divide-and-conquer split
-def recursive_split(A, B, tasks):
-    n = A.shape[0]
-    if n <= THRESHOLD:
-        task_id = str(uuid.uuid4())
-        tasks.append({'task_id': task_id, 'subA': A, 'subB': B})
-        return
+@app.post("/split")
+def split_and_dispatch(req: SplitRequest):
+    try:
+        # Convert lists to numpy arrays
+        A = np.array(req.A)
+        B = np.array(req.B)
 
-    mid = n // 2
-    A_quads = [A[:mid, :mid], A[:mid, mid:], A[mid:, :mid], A[mid:, mid:]]
-    B_quads = [B[:mid, :mid], B[:mid, mid:], B[mid:, :mid], B[mid:, mid:]]
+        # Validate shapes
+        if A.shape[1] != B.shape[0]:
+            raise HTTPException(status_code=400, detail="Incompatible matrix dimensions")
 
-    for a_sub, b_sub in zip(A_quads, B_quads):
-        recursive_split(a_sub, b_sub, tasks)
+        m, n = A.shape
+        _, p = B.shape
 
-# Function to send tasks over TCP
-def send_tasks(tasks, host, port):
-    for task in tasks:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.connect((host, port))
-                s.sendall(pickle.dumps(task))  # Serialize Python object
-                print(f"Sent task {task['task_id']} to Multiplication Service")
-            except Exception as e:
-                print(f"Failed to send task {task['task_id']}: {e}")
+        # Auto-select block size if not provided
+        if req.block_size <= 0:
+            req.block_size = max(50, min(n // 10, 1000))
+            print(f"🧮 Auto-selected block size: {req.block_size}")
 
-def main():
-    # Example: generate random 4x4 matrices (replace with file input if needed)
-    n = 10
-    A = np.random.randint(0, 10, (n, n))
-    B = np.random.randint(0, 10, (n, n))
-    print("Matrix A:\n", A)
-    print("Matrix B:\n", B)
+        b = req.block_size
 
-    validate_matrices(A, B)
+        # Determine block counts
+        row_blocks = math.ceil(m / b)
+        col_blocks = math.ceil(p / b)
+        depth_blocks = math.ceil(n / b)
 
-    tasks = []
-    recursive_split(A, B, tasks)
-    print(f"Total tasks generated: {len(tasks)}")
+        # Generate job ID
+        job_id = str(uuid.uuid4())
 
-    send_tasks(tasks, HOST, PORT)
+        # Notify aggregator to initialize job
+        init_payload = {
+            "job_id": job_id,
+            "blocks_expected": row_blocks * col_blocks * depth_blocks,
+            "block_rows": row_blocks,
+            "block_cols": col_blocks
+        }
+        try:
+            requests.post(f"{req.aggregator_url}/init_job", json=init_payload, timeout=10)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to contact aggregator: {e}")
 
-if __name__ == "__main__":
-    main()
+        dispatched = 0
+
+        # Iterate through blocks
+        for i in range(row_blocks):
+            for j in range(col_blocks):
+                for k in range(depth_blocks):
+                    A_block = A[i*b:(i+1)*b, k*b:(k+1)*b]
+                    B_block = B[k*b:(k+1)*b, j*b:(j+1)*b]
+
+                    payload = {
+                        "job_id": job_id,
+                        "row_block": i,
+                        "col_block": j,
+                        "A_block": A_block.tolist(),
+                        "B_block": B_block.tolist(),
+                        "aggregator_url": req.aggregator_url
+                    }
+
+                    try:
+                        requests.post(f"{req.worker_url}/multiply", json=payload, timeout=15)
+                        dispatched += 1
+                    except Exception as e:
+                        print(f"❌ Failed to send block ({i},{j},{k}): {e}")
+
+        print(f"✅ Dispatched {dispatched} total blocks")
+        return {
+            "job_id": job_id,
+            "blocks_dispatched": dispatched,
+            "block_size": b,
+            "shape_A": A.shape,
+            "shape_B": B.shape
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
