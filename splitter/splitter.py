@@ -32,7 +32,7 @@ def split_and_dispatch(req: SplitRequest):
         # Auto-select block size if not provided
         if req.block_size <= 0:
             req.block_size = max(50, min(n // 10, 1000))
-            print(f"🧮 Auto-selected block size: {req.block_size}")
+            print(f"Auto-selected block size: {req.block_size}")
 
         b = req.block_size
 
@@ -78,9 +78,9 @@ def split_and_dispatch(req: SplitRequest):
                         requests.post(f"{req.worker_url}/multiply", json=payload, timeout=15)
                         dispatched += 1
                     except Exception as e:
-                        print(f"❌ Failed to send block ({i},{j},{k}): {e}")
+                        print(f"Failed to send block ({i},{j},{k}): {e}")
 
-        print(f"✅ Dispatched {dispatched} total blocks")
+        print(f"Dispatched {dispatched} total blocks")
         return {
             "job_id": job_id,
             "blocks_dispatched": dispatched,
