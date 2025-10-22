@@ -1,82 +1,118 @@
-from typing import List, Dict, Tuple
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
+from typing import Dict, Tuple, List
+import numpy as np
+import math
 
-app = FastAPI()
+app = FastAPI(title="Aggregator Microservice")
 
-# Temporary in-memory storage for results
-results_storage: Dict[Tuple[int, int], List[List[int]]] = {}
+# Job storage: keeps all jobs isolated
+jobs: Dict[str, Dict] = {}
+
+@app.post("/init_job")
+async def init_job(request: Request):
+    data = await request.json()
+    job_id = data.get("job_id")
+    blocks_expected = data.get("blocks_expected")
+    block_rows = data.get("block_rows")
+    block_cols = data.get("block_cols")
+
+    if not job_id:
+        raise HTTPException(status_code=400, detail="Missing job_id")
+
+    jobs[job_id] = {
+        "results": {},
+        "blocks_expected": blocks_expected,
+        "block_rows": block_rows,
+        "block_cols": block_cols,
+        "received": 0
+    }
+
+    print(f"✅ Initialized job {job_id} expecting {blocks_expected} blocks")
+    return {"message": f"Job {job_id} initialized", "expected": blocks_expected}
+
 
 @app.post("/aggregate/submit_block")
 async def submit_block(request: Request):
-    """
-    Receives a partial matrix result block and stores it.
-    Example payload:
-    {
-        "row_block": 0,
-        "col_block": 1,
-        "data": [[1, 2], [3, 4]]
-    }
-    """
     data = await request.json()
+    job_id = data.get("job_id")
     row_block = data.get("row_block")
     col_block = data.get("col_block")
     block_data = data.get("data")
 
-    if row_block is None or col_block is None or block_data is None:
-        return {"error": "Missing row_block, col_block, or data"}
+    if not job_id or job_id not in jobs:
+        raise HTTPException(status_code=400, detail="Unknown or missing job_id")
 
-    results_storage[(row_block, col_block)] = block_data
-    print(f"✅ Received block ({row_block}, {col_block}): {block_data}")
+    job = jobs[job_id]
+
+    job["results"][(row_block, col_block)] = block_data
+    job["received"] += 1
+
+    print(f"✅ Received block ({row_block}, {col_block}) for job {job_id}")
+
+    # Optional: if all blocks received, compute immediately
+    if job["received"] == job["blocks_expected"]:
+        print(f"🏁 Job {job_id} — all blocks received!")
+
+    return {"message": f"Stored block ({row_block}, {col_block})", "job_id": job_id}
 
 
-    return {"message": f"Block ({row_block}, {col_block}) received successfully"}
-
-@app.get("/aggregate/final_result")
-async def get_final_result():
+@app.get("/aggregate/final_result/{job_id}")
+async def get_final_result(job_id: str):
     """
-    Combines all received blocks into a final result matrix.
-    Blocks are assumed to be keyed by (row_block, col_block).
+    Combines stored blocks for a specific job into a full matrix.
     """
-    if not results_storage:
-        return {"message": "No results yet"}
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-   # Determine the block grid size
-    row_blocks = sorted(set(k[0] for k in results_storage.keys()))
-    col_blocks = sorted(set(k[1] for k in results_storage.keys()))
+    job = jobs[job_id]
+    results = job["results"]
+
+    if len(results) == 0:
+        return {"message": "No results yet for this job"}
+
+    row_blocks = job["block_rows"]
+    col_blocks = job["block_cols"]
 
     final_result = []
+    for r in range(row_blocks):
+        row_parts = [results.get((r, c)) for c in range(col_blocks)]
+        if any(p is None for p in row_parts):
+            return {"message": f"Missing blocks in row {r}"}
 
-    #combine row by row
-    for r in row_blocks:
-        #get all blokcs in this row
-        row_parts = [results_storage.get((r, c)) for c in col_blocks]
-
-        
-        if None in row_parts:
-            return {"error": f"Missing blocks in row {r}"}
-        
-        #horizontally stack the blocks in this row
-        combined_rows=[]
-        for i in range(len(row_parts[0])):  # for each row in the block
-            combined_row=[]
+        row_combined = []
+        for i in range(len(row_parts[0])):
+            row_line = []
             for block in row_parts:
-                combined_row.extend(block[i])
-            combined_rows.append(combined_row)
-        final_result.extend(combined_rows)
+                row_line.extend(block[i])
+            row_combined.append(row_line)
 
+        final_result.extend(row_combined)
 
-    if not final_result or not isinstance(final_result[0], list):
-        return {"error": "Invalid result structure"}
+    shape = [len(final_result), len(final_result[0]) if final_result else 0]
 
-    print("Final aggregated result:")
-    for row in final_result:
-        print(row)
-
+    print(f"🏁 Job {job_id} — Final result ready, shape {shape}")
     return {
         "message": "Aggregation complete",
-        "shape": [len(final_result), len(final_result[0])],
+        "job_id": job_id,
+        "shape": shape,
         "final_result": final_result
     }
+
+
+@app.get("/aggregate/jobs")
+def list_jobs():
+    """
+    Debug endpoint: lists all active jobs and how many blocks have been received.
+    """
+    return {
+        job_id: {
+            "received": job["received"],
+            "expected": job["blocks_expected"],
+            "rows": job["block_rows"],
+            "cols": job["block_cols"]
+        } for job_id, job in jobs.items()
+    }
+
 
 @app.get("/health")
 def health():

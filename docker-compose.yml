@@ -22,6 +22,8 @@ services:
       - aggregator
     networks:
       - matrix_net
+    deploy:
+      replicas: 4
 
   splitter:
     build:

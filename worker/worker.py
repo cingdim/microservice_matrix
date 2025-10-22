@@ -40,7 +40,7 @@ def multiply(req: MultiplyRequest):
             "data": C_block
         }
 
-        response = requests.post(f"{req.aggregator_url}/submit_block", json=payload, timeout=5)
+        response = requests.post(f"{req.aggregator_url}/aggregate/submit_block", json=payload, timeout=5)
         response.raise_for_status()
 
         return {"status": "done", "job_id": req.job_id, "shape": [len(C_block), len(C_block[0])]}
