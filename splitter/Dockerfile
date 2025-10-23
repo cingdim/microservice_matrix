@@ -7,7 +7,7 @@ WORKDIR /app
 COPY . /app
 
 # Install dependencies for FastAPI + math operations
-RUN pip install --no-cache-dir fastapi uvicorn numpy requests pydantic
+RUN pip install --no-cache-dir fastapi uvicorn numpy requests pydantic  python-multipart
 
 # Expose the FastAPI service port
 EXPOSE 8000
