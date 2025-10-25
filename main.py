@@ -66,7 +66,8 @@ def run_pipeline(n=10, block_size=500, job_id=None):
     return None
 
 if __name__ == "__main__":
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    time.sleep(15)
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 10000
     block_size = int(sys.argv[2]) if len(sys.argv) > 2 else 500
     num_jobs = int(sys.argv[3]) if len(sys.argv) > 3 else 3
 
