@@ -2,6 +2,9 @@ version: "3.9"
 
 services:
   aggregator:
+    build:
+      context: ./aggregator
+      dockerfile: Dockerfile
     image: aggregator:latest
     ports:
       - "8002:8002"
@@ -10,25 +13,34 @@ services:
     restart: on-failure
 
   worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
     image: worker:latest
     networks:
       - matrix_net
     deploy:   # ❌ remove this if it exists
       replicas: 4  # ❌ also remove
     restart: on-failure
+    volumes:
+      - ./results:/app/results
 
   splitter:
+    build:
+      context: ./splitter
+      dockerfile: Dockerfile
     image: splitter:latest
     depends_on:
       - aggregator
       - worker
     networks:
       - matrix_net
-    deploy:   # ❌ remove this if it exists
-      replicas: 3 # ❌ also remove
     restart: on-failure
 
   main:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: main:latest
     depends_on:
       - splitter
@@ -36,9 +48,15 @@ services:
       - worker
     networks:
       - matrix_net
-    command: ["python", "main.py", "10000", "500", "3"]
-    restart: on-failure
+    command: ["tail", "-f", "/dev/null"]
+    volumes:
+    - ./results:/app/results
+
 
 networks:
   matrix_net:
     driver: bridge
+
+volumes:
+  results:
+    driver: local

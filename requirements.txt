@@ -1,2 +1,6 @@
 requests
 numpy
+matplotlib
+psutil
+seaborn
+pandas

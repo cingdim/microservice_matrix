@@ -3,6 +3,7 @@ from typing import Dict, Tuple
 import numpy as np
 import io
 import time
+
 app = FastAPI(title="Aggregator Microservice")
 
 # Job storage
@@ -10,7 +11,6 @@ jobs: Dict[str, Dict] = {}
 
 @app.post("/init_job")
 async def init_job(request: Request):
-    
     data = await request.json()
     job_id = data.get("job_id")
     blocks_expected = data.get("blocks_expected")
@@ -20,8 +20,16 @@ async def init_job(request: Request):
     if not job_id:
         raise HTTPException(status_code=400, detail="Missing job_id")
 
+    if job_id in jobs:
+        # Job already initialized - return existing info
+        print(f"⚠️ Job {job_id} already initialized, returning existing configuration")
+        return {
+            "message": f"Job {job_id} already exists",
+            "expected": jobs[job_id]["blocks_expected"]
+        }
+
     jobs[job_id] = {
-        "results": {},
+        "results": {},  # key: (i,j,k) -> value: A[i,k] × B[k,j]
         "blocks_expected": blocks_expected,
         "block_rows": block_rows,
         "block_cols": block_cols,
@@ -32,38 +40,61 @@ async def init_job(request: Request):
     print(f"✅ Initialized job {job_id} expecting {blocks_expected} blocks")
     return {"message": f"Job {job_id} initialized", "expected": blocks_expected}
 
+
 @app.post("/aggregate/submit_block")
 async def submit_block(
     job_id: str = Form(...),
     row_block: int = Form(...),
     col_block: int = Form(...),
-    worker_time_sec: float = Form(0.0), 
+    depth_block: int = Form(...),  # ✅ ADDED: k-index to prevent duplicates
+    worker_time_sec: float = Form(0.0),
     file: UploadFile = None
 ):
     if job_id not in jobs:
-        raise HTTPException(status_code=400, detail="Unknown or missing job_id")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown job_id: {job_id}. Job may not be initialized."
+        )
 
-    # Load the npy block
     content = await file.read()
     buf = io.BytesIO(content)
     block_data = np.load(buf)
 
-    # Store block
     job = jobs[job_id]
-    job["results"][(row_block, col_block)] = block_data
-    job["received"] += 1
+    key = (row_block, col_block, depth_block)  # ✅ 3D key: (i, j, k)
 
-    #track worker time
+    # ✅ FIXED: Only store once per unique (i,j,k) combination
+    if key in job["results"]:
+        print(
+            f"⚠️ Duplicate block ({row_block},{col_block},{depth_block}) "
+            f"for job {job_id} - ignoring"
+        )
+        return {
+            "message": f"Duplicate block ({row_block},{col_block},{depth_block}) ignored",
+            "job_id": job_id
+        }
+    
+    job["results"][key] = block_data
+    job["received"] += 1
     job["worker_times"].append(worker_time_sec)
 
-    print(f"✅ Received block ({row_block}, {col_block}) "
-          f"for job {job_id} [{job['received']}/{job['blocks_expected']}] "
-          f"(worker {worker_time_sec:.4f} sec)")
-    return {"message": f"Stored block ({row_block},{col_block})", "job_id": job_id}
+    print(
+        f"✅ Received block ({row_block},{col_block},{depth_block}) for job {job_id} "
+        f"[{job['received']}/{job['blocks_expected']}] (worker {worker_time_sec:.4f}s)"
+    )
+    
+    return {
+        "message": f"Stored block ({row_block},{col_block},{depth_block})",
+        "job_id": job_id
+    }
+
+
+# In aggregator.py, modify get_final_result function:
 
 @app.get("/aggregate/final_result/{job_id}")
 async def get_final_result(job_id: str):
-    start_time = time.perf_counter() 
+    start_time = time.perf_counter()
+    
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
@@ -71,19 +102,31 @@ async def get_final_result(job_id: str):
     results = job["results"]
 
     if job["received"] < job["blocks_expected"]:
-        return {"message": f"Not all blocks received yet ({job['received']}/{job['blocks_expected']})"}
+        return {
+            "message": f"Not all blocks received yet ({job['received']}/{job['blocks_expected']})"
+        }
 
-    # Reconstruct with np.block (efficient stitching)
+    # Accumulate k-contributions properly
+    final_blocks = {}
+    for (i, j, k), partial_result in results.items():
+        ij_key = (i, j)
+        if ij_key not in final_blocks:
+            final_blocks[ij_key] = np.zeros_like(partial_result)
+        final_blocks[ij_key] += partial_result
+
+    # Reconstruct full matrix
     row_blocks = []
     for r in range(job["block_rows"]):
-        col_blocks = [results[(r, c)] for c in range(job["block_cols"])]
+        col_blocks = [final_blocks[(r, c)] for c in range(job["block_cols"])]
         row_blocks.append(np.hstack(col_blocks))
+    
     final_result = np.vstack(row_blocks)
-
     shape = final_result.shape
+    
     elapsed = time.perf_counter() - start_time
-    print(f"✅ Done aggregator {elapsed:.4f} sec")
+    print(f"✅ Aggregation complete in {elapsed:.4f}s")
     print(f"🏁 Job {job_id} — Final result ready, shape {shape}")
+    
     worker_times = job.get("worker_times", [])
     worker_summary = {}
     if worker_times:
@@ -93,16 +136,35 @@ async def get_final_result(job_id: str):
             "worker_time_max": float(np.max(worker_times)),
             "worker_time_min": float(np.min(worker_times)),
         }
-    # Option: don’t return entire matrix for huge jobs, just shape
-    return {
-        "message": "Aggregation complete",
-        "job_id": job_id,
-        "shape": shape,
-        # ⚠️ CAREFUL: returning 100M numbers will blow up HTTP response
-        # "final_result": final_result.tolist(),  # enable only for small jobs
-        "aggregation_time_sec": elapsed,
-        **worker_summary 
-    }
+    
+    # ✅ NEW: Only return full matrix for small results
+    total_elements = shape[0] * shape[1]
+    if total_elements <= 10000:  # Only return if <= 100x100
+        return {
+            "message": "Aggregation complete",
+            "job_id": job_id,
+            "shape": shape,
+            "final_result": final_result.tolist(),
+            "aggregation_time_sec": elapsed,
+            **worker_summary
+        }
+    else:
+        # For large matrices, return shape and stats only
+        return {
+            "message": "Aggregation complete",
+            "job_id": job_id,
+            "shape": shape,
+            "final_result": "Matrix too large to return via HTTP. Shape and stats provided.",
+            "result_summary": {
+                "min": float(np.min(final_result)),
+                "max": float(np.max(final_result)),
+                "mean": float(np.mean(final_result)),
+                "std": float(np.std(final_result)),
+            },
+            "aggregation_time_sec": elapsed,
+            **worker_summary
+        }
+
 
 @app.get("/aggregate/jobs")
 def list_jobs():
@@ -112,9 +174,9 @@ def list_jobs():
             "expected": job["blocks_expected"],
             "rows": job["block_rows"],
             "cols": job["block_cols"]
-            
         } for job_id, job in jobs.items()
     }
+
 
 @app.get("/health")
 def health():

@@ -1,0 +1,52 @@
+[
+  {
+    "matrix_size": 500,
+    "block_size": 250,
+    "execution_time": 5.715782165527344,
+    "avg_cpu": 0.0,
+    "peak_cpu": 0.0,
+    "peak_memory": 80.15625,
+    "worker_time": 0.34410935899359174,
+    "success": true
+  },
+  {
+    "matrix_size": 1000,
+    "block_size": 500,
+    "execution_time": 4.724436521530151,
+    "avg_cpu": 0.0,
+    "peak_cpu": 0.0,
+    "peak_memory": 114.47265625,
+    "worker_time": 0.5477661789991544,
+    "success": true
+  },
+  {
+    "matrix_size": 2000,
+    "block_size": 500,
+    "execution_time": 6.9280383586883545,
+    "avg_cpu": 0.0,
+    "peak_cpu": 0.0,
+    "peak_memory": 244.2421875,
+    "worker_time": 4.423583862975647,
+    "success": true
+  },
+  {
+    "matrix_size": 5000,
+    "block_size": 1000,
+    "execution_time": 17.325928926467896,
+    "avg_cpu": 8.5,
+    "peak_cpu": 8.5,
+    "peak_memory": 680.6171875,
+    "worker_time": 22.827452640020056,
+    "success": true
+  },
+  {
+    "matrix_size": 10000,
+    "block_size": 2000,
+    "execution_time": 43.22887659072876,
+    "avg_cpu": 1.2,
+    "peak_cpu": 1.2,
+    "peak_memory": 2397.24609375,
+    "worker_time": 49.64440593793552,
+    "success": true
+  }
+]

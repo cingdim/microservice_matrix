@@ -1,0 +1,31 @@
+{
+  "matrix_size": 10000,
+  "block_size": 2000,
+  "timing": {
+    "phase1_creation": 2.8621461391448975,
+    "phase2_serialization": 1.0857291221618652,
+    "phase3_computation": 36.75016784667969,
+    "total": 42.69920229911804,
+    "worker_total": 56.5549333940362,
+    "worker_avg": 0.45243946715228955,
+    "worker_min": 0.12256569800229045,
+    "worker_max": 1.594663803000003,
+    "aggregation": 0.8165374230011366
+  },
+  "memory": {
+    "initial_mb": 68.96484375,
+    "after_matrices_mb": 834.65625,
+    "after_clear_mb": 1612.296875,
+    "peak_mb": 2376.56640625,
+    "used_mb": 2307.6015625
+  },
+  "cpu": {
+    "initial_percent": 0.5,
+    "average_percent": 58.668421052631594,
+    "peak_percent": 100.0
+  },
+  "monitoring": {
+    "sample_count": 38,
+    "duration_seconds": 41.64638304710388
+  }
+}
